@@ -1,220 +1,248 @@
+"""
+Обучение одного нейрона через Генетический Алгоритм
+Датасет: папка train/plus/ и train/v/  (PNG, любой размер)
+После обучения: вводим путь к изображению — нейрон его классифицирует.
+
+pip install pillow   <- только для чтения PNG
+"""
+
+import os, random
 from dataclasses import dataclass
-import random
+from PIL import Image
 
 
-@dataclass
-class GeneticAlgorithmConfig:
-    genome_length: int
-    population_size: int = 40
-    generations: int = 80
-    elite_size: int = 4
-    tournament_size: int = 3
-    mutation_rate: float = 0.12
-    mutation_strength: float = 0.35
-    crossover_rate: float = 0.85
-    min_value: float = -2.0
-    max_value: float = 2.0
-    random_seed: int = 42
-
+# ─────────────────────────────────────────────────────────
+#  ПАРАМЕТРЫ  (все настройки алгоритма в одном месте)
+# ─────────────────────────────────────────────────────────
 
 @dataclass
-class GenerationResult:
-    generation: int
-    best_fitness: float
-    average_fitness: float
+class GAConfig:
+    population_size:  int   = 40    # количество особей в популяции
+    num_generations:  int   = 100   # сколько поколений эволюции
+    mutation_chance:  float = 0.15  # вероятность мутации  (0.0 – 1.0)
+    weight_range:     float = 1.0   # веса инициализируются в [-X, +X]
+    threshold_range:  float = 5.0   # порог инициализируется в [-X, +X]
+NUM_PIXELS = 81
+
+# ─────────────────────────────────────────────────────────
+#  ЧТЕНИЕ PNG  (не алгоритм, просто утилита)
+#
+#  PNG любого размера масштабируется до 9x9.
+#  Тёмный пиксель (< 128) -> 1.0,  светлый -> 0.0
+# ─────────────────────────────────────────────────────────
+
+  # 9 x 9
+
+def read_png(filepath: str) -> list:
+    """PNG -> список из 81 числа (0.0 или 1.0)."""
+    img = Image.open(filepath).convert('L').resize((9, 9))
+    return [1.0 if img.getpixel((c, r)) < 128 else 0.0
+            for r in range(9) for c in range(9)]
 
 
-@dataclass
-class GenerationTrace:
-    generation: int
-    operation: str
-    population: list
-    fitness_before: list
-    fitness_after: list
-    best_genome: list
-    best_fitness: float
-    average_fitness: float
-    details: list
+def load_dataset(folder: str) -> list:
+    """
+    Читает train/plus/*.png  -> label=1  (класс «+»)
+             train/v/*.png    -> label=0  (класс «V»)
+    Возвращает список словарей: {'pixels', 'label', 'name'}
+    """
+    data = []
+    for cls, lbl in {'plus': 1, 'V': 0}.items():
+        path = os.path.join(folder, cls)
+        for fname in sorted(os.listdir(path)):
+            if fname.lower().endswith('.png'):
+                pixels = read_png(os.path.join(path, fname))
+                data.append({'pixels': pixels, 'label': lbl, 'name': fname})
+    return data
 
 
-class GeneticAlgorithm:
-    def __init__(self, config, fitness_function):
-        self.config = config
-        self.fitness_function = fitness_function
-        self.random = random.Random(config.random_seed)
+# ─────────────────────────────────────────────────────────
+#  НЕЙРОН
+#
+#  S = w[0]*x[0] + w[1]*x[1] + ... + w[80]*x[80]
+#  если S >= θ  ->  выход 1  (класс «+»)
+#  если S <  θ  ->  выход 0  (класс «V»)
+# ─────────────────────────────────────────────────────────
 
-    def _create_genome(self):
-        return [
-            self.random.uniform(self.config.min_value, self.config.max_value)
-            for _ in range(self.config.genome_length)
-        ]
+def neuron(weights: list, threshold: float, pixels: list) -> int:
+    total = sum(weights[i] * pixels[i] for i in range(NUM_PIXELS))
+    return 1 if total >= threshold else 0
 
-    def _create_population(self):
-        return [self._create_genome() for _ in range(self.config.population_size)]
 
-    def _evaluate_population(self, population):
-        scored_population = []
-        for genome in population:
-            fitness = self.fitness_function(genome)
-            scored_population.append((fitness, genome))
-        scored_population.sort(key=lambda item: item[0], reverse=True)
-        return scored_population
+# ─────────────────────────────────────────────────────────
+#  ФИТНЕС-ФУНКЦИЯ
+#
+#  fitness = правильных ответов / всего примеров   (0.0 – 1.0)
+#
+#  Визуальная шкала: чем больше X — тем особь приспособленнее.
+#  Цель алгоритма — максимизировать fitness до 1.0 (100%).
+# ─────────────────────────────────────────────────────────
 
-    def _tournament_select(self, scored_population):
-        candidates = self.random.sample(
-            scored_population,
-            min(self.config.tournament_size, len(scored_population)),
-        )
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        return candidates[0][1]
+def fitness(ind: dict, dataset: list) -> float:
+    correct = sum(
+        1 for s in dataset
+        if neuron(ind['weights'], ind['threshold'], s['pixels']) == s['label']
+    )
+    return correct / len(dataset)
 
-    def _reduce_population(self, population):
-        scored_population = self._evaluate_population(population)
-        reduced = [genome[:] for _, genome in scored_population[: self.config.population_size]]
-        reduced_scores = self._evaluate_population(reduced)
-        return reduced, reduced_scores
 
-    def _crossover(self, parent_a, parent_b):
-        if self.random.random() > self.config.crossover_rate:
-            return parent_a[:], parent_b[:]
+def fitness_bar(value: float, width: int = 20) -> str:
+    """[XXXXXXXXXXXXXXX.....] 75%"""
+    filled = round(value * width)
+    return f"[{'X' * filled + '.' * (width - filled)}] {value:.0%}"
 
-        child_a = []
-        child_b = []
-        for gene_a, gene_b in zip(parent_a, parent_b):
-            mix_ratio = self.random.random()
-            child_a.append(gene_a * mix_ratio + gene_b * (1.0 - mix_ratio))
-            child_b.append(gene_b * mix_ratio + gene_a * (1.0 - mix_ratio))
-        return child_a, child_b
 
-    def _mutate(self, genome):
-        mutated = genome[:]
-        changes = []
-        for index, value in enumerate(mutated):
-            if self.random.random() < self.config.mutation_rate:
-                old_value = value
-                value += self.random.uniform(
-                    -self.config.mutation_strength,
-                    self.config.mutation_strength,
-                )
-                value = max(self.config.min_value, min(self.config.max_value, value))
-                mutated[index] = value
-                changes.append((index, old_value, value))
-        return mutated, changes
+# ─────────────────────────────────────────────────────────
+#  ГЕНЕТИЧЕСКИЙ АЛГОРИТМ
+# ─────────────────────────────────────────────────────────
 
-    def run(self, progress_callback=None):
-        population = self._create_population()
-        history = []
+def make_individual(cfg: GAConfig) -> dict:
+    """Случайная особь: случайные веса и порог."""
+    return {
+        'weights':   [random.uniform(-cfg.weight_range, cfg.weight_range)
+                      for _ in range(NUM_PIXELS)],
+        'threshold': random.uniform(-cfg.threshold_range, cfg.threshold_range),
+        'fitness':   0.0
+    }
 
-        if progress_callback is not None:
-            initial_scores = self._evaluate_population(population)
-            initial_fitness = [fitness for fitness, _ in initial_scores]
-            initial_best_fitness, initial_best_genome = initial_scores[0]
-            initial_average_fitness = sum(initial_fitness) / len(initial_fitness)
-            should_continue = progress_callback(
-                GenerationTrace(
-                    generation=0,
-                    operation="начальная популяция",
-                    population=[genome[:] for genome in population],
-                    fitness_before=initial_fitness,
-                    fitness_after=initial_fitness[:],
-                    best_genome=initial_best_genome[:],
-                    best_fitness=initial_best_fitness,
-                    average_fitness=initial_average_fitness,
-                    details=[],
-                )
-            )
-            if should_continue is False:
-                return initial_best_genome[:], initial_best_fitness, history
 
-        for generation in range(1, self.config.generations + 1):
-            scored_population = self._evaluate_population(population)
-            fitness_values = [fitness for fitness, _ in scored_population]
-            best_fitness, _ = scored_population[0]
-            average_fitness = sum(fitness_values) / len(fitness_values)
-            working_population = [genome[:] for _, genome in scored_population]
-            details = []
+def crossover(a: dict, b: dict) -> dict:
+    """
+    Скрещивание через случайную точку разреза.
+    Потомок = [гены A до точки] + [гены B после точки].
+    Порог наследуется случайно от одного из родителей.
+    """
+    cut = random.randint(1, NUM_PIXELS - 1)
+    return {
+        'weights':   a['weights'][:cut] + b['weights'][cut:],
+        'threshold': random.choice([a['threshold'], b['threshold']]),
+        'fitness':   0.0
+    }
 
-            if self.random.random() < self.config.crossover_rate:
-                operation = "скрещивание"
-                parent_a = self._tournament_select(scored_population)
-                parent_b = self._tournament_select(scored_population)
-                child_a, child_b = self._crossover(parent_a, parent_b)
-                working_population.append(child_a)
-                working_population.append(child_b)
-                details.append("Выбрано действие: скрещивание")
-                details.append(f"Родитель A fitness: {self.fitness_function(parent_a):.3f}")
-                details.append(f"Родитель B fitness: {self.fitness_function(parent_b):.3f}")
-                details.append(
-                    f"Потомок A fitness: {self.fitness_function(child_a):.3f}"
-                )
-                details.append(
-                    f"Потомок B fitness: {self.fitness_function(child_b):.3f}"
-                )
-            else:
-                operation = "мутация"
-                parent = self._tournament_select(scored_population)
-                mutant, changes = self._mutate(parent)
-                if not changes:
-                    mutant_index = self.random.randrange(len(mutant))
-                    old_value = mutant[mutant_index]
-                    mutant[mutant_index] = max(
-                        self.config.min_value,
-                        min(
-                            self.config.max_value,
-                            old_value
-                            + self.random.uniform(
-                                -self.config.mutation_strength,
-                                self.config.mutation_strength,
-                            ),
-                        ),
-                    )
-                    changes = [(mutant_index, old_value, mutant[mutant_index])]
-                working_population.append(mutant)
-                details.append("Выбрано действие: мутация")
-                details.append(f"Исходная особь fitness: {self.fitness_function(parent):.3f}")
-                details.append(
-                    "Изменённые гены: "
-                    + ", ".join(
-                        f"{index + 1}: {old_value:.3f}->{new_value:.3f}"
-                        for index, old_value, new_value in changes
-                    )
-                )
-                details.append(
-                    f"Мутировавшая особь fitness: {self.fitness_function(mutant):.3f}"
-                )
 
-            population, reduced_scores = self._reduce_population(working_population)
-            reduced_fitness = [fitness for fitness, _ in reduced_scores]
-            reduced_best_fitness, best_genome = reduced_scores[0]
-            reduced_average_fitness = sum(reduced_fitness) / len(reduced_fitness)
+def mutate(ind: dict, cfg: GAConfig) -> dict:
+    """
+    Мутация: выбираем 2 случайные позиции и меняем их местами (swap).
+    Применяется с вероятностью mutation_chance.
+    """
+    w = ind['weights'][:]
+    if random.random() < cfg.mutation_chance:
+        p1 = random.randint(0, NUM_PIXELS - 1)
+        p2 = random.randint(0, NUM_PIXELS - 1)
+        while p2 == p1:
+            p2 = random.randint(0, NUM_PIXELS - 1)
+        w[p1], w[p2] = w[p2], w[p1]  # swap
+    return {'weights': w, 'threshold': ind['threshold'], 'fitness': 0.0}
 
-            history.append(
-                GenerationResult(
-                    generation=generation,
-                    best_fitness=reduced_best_fitness,
-                    average_fitness=reduced_average_fitness,
-                )
-            )
 
-            if progress_callback is not None:
-                should_continue = progress_callback(
-                    GenerationTrace(
-                        generation=generation,
-                        operation=operation,
-                        population=[genome[:] for genome in population],
-                        fitness_before=fitness_values,
-                        fitness_after=reduced_fitness,
-                        best_genome=best_genome[:],
-                        best_fitness=reduced_best_fitness,
-                        average_fitness=reduced_average_fitness,
-                        details=details,
-                    )
-                )
-                if should_continue is False:
-                    final_population = self._evaluate_population(population)
-                    best_fitness, best_genome = final_population[0]
-                    return best_genome[:], best_fitness, history
+def run(cfg: GAConfig, train: list) -> dict:
+    """Основной цикл ГА. Возвращает лучшую особь."""
 
-        final_population = self._evaluate_population(population)
-        best_fitness, best_genome = final_population[0]
-        return best_genome[:], best_fitness, history
+    # ШАГ 1 — Инициализация случайной популяции
+    population = [make_individual(cfg) for _ in range(cfg.population_size)]
+    for ind in population:
+        ind['fitness'] = fitness(ind, train)
+
+    print(f"\n{'─'*46}")
+    print(f"  {'Поколение':>10}  {'Fitness':>8}")
+    print(f"{'─'*46}")
+
+    for gen in range(1, cfg.num_generations + 1):
+
+        # ШАГ 2 — Сортируем: лучшие особи идут первыми
+        population.sort(key=lambda x: x['fitness'], reverse=True)
+        best = population[0]
+
+        if gen == 1 or gen % 10 == 0:
+            print(f"  {gen:>10}  {best['fitness']}")
+
+        if best['fitness'] >= 1.0:
+            print(f"\n  Достигнута 100% точность на поколении {gen}!")
+            break
+
+        # ШАГ 3 — Новое поколение
+        new_pop = [best]  # элитизм: лучшая особь выживает без изменений
+
+        while len(new_pop) < cfg.population_size:
+            pa    = random.choice(population)   # случайный родитель A
+            pb    = random.choice(population)   # случайный родитель B
+            child = crossover(pa, pb)           # скрещивание
+            child = mutate(child, cfg)          # мутация
+            child['fitness'] = fitness(child, train)
+            new_pop.append(child)
+
+        population = new_pop
+
+    population.sort(key=lambda x: x['fitness'], reverse=True)
+    return population[0]
+
+
+# ─────────────────────────────────────────────────────────
+#  ДЕМОНСТРАЦИЯ — классификация одного изображения
+# ─────────────────────────────────────────────────────────
+
+def predict_image(best: dict, filepath: str) -> None:
+    """Читает PNG по пути и выводит ответ нейрона."""
+    pixels = read_png(filepath)
+    result = neuron(best['weights'], best['threshold'], pixels)
+    label  = '+ (плюс)' if result == 1 else 'V (галочка)'
+
+    # Показываем изображение в терминале символами
+    print(f"\n  Изображение: {os.path.basename(filepath)}")
+    print("  " + "─" * 19)
+    for r in range(9):
+        row = ''.join('##' if pixels[r*9+c] else '  ' for c in range(9))
+        print(f"  |{row}|")
+    print("  " + "─" * 19)
+    print(f"\n  Ответ нейрона: {label}")
+
+
+# ─────────────────────────────────────────────────────────
+#  ТОЧКА ВХОДА
+# ─────────────────────────────────────────────────────────
+
+def main():
+    cfg = GAConfig(
+        population_size = 20,
+        num_generations = 100,
+        mutation_chance = 0.15,
+    )
+
+    print("=" * 46)
+    print("  Нейрон + Генетический Алгоритм")
+    print("  Классы: «+» и «V»,  PNG 9x9")
+    print("=" * 46)
+    print(f"\n  Популяция : {cfg.population_size}")
+    print(f"  Поколений : {cfg.num_generations}")
+    print(f"  Мутация   : {cfg.mutation_chance:.0%}")
+
+    # Загружаем обучающий датасет из папки train/
+    train = load_dataset('train')
+    print(f"\n  Загружено обучающих примеров: {len(train)}")
+
+    # Запускаем обучение
+    best = run(cfg, train)
+
+    print(f"\n  Лучший нейрон:")
+    print(f"    Фитнес функция : {best['fitness']}")
+    print(f"    Порог th : {best['threshold']:.4f}")
+
+    # Демонстрация: пользователь вводит путь к PNG
+    print(f"\n{'─'*46}")
+    print("  ДЕМОНСТРАЦИЯ")
+    print("  Введите путь к PNG-файлу (или 'q' для выхода):")
+    print(f"{'─'*46}")
+
+    while True:
+        path = input("\n  Путь к изображению: ").strip()
+        if path.lower() == 'q':
+            break
+        if not os.path.isfile(path):
+            print(f"  Файл не найден: {path}")
+            continue
+        predict_image(best, path)
+
+
+if __name__ == '__main__':
+    random.seed(38)
+    main()
