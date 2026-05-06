@@ -46,7 +46,7 @@ def fitness(ind: dict, dataset: list) -> float:
 
 def make_individual(cfg: GAConfig) -> dict:
     return {
-        'weights':   [random.uniform(-cfg.weight_range, cfg.weight_range)
+        'weights':   [random.uniform(-1.0, 1.0)
                       for _ in range(NUM_PIXELS)],
         'bias': random.uniform(-cfg.bias_range, cfg.bias_range),
         'fitness':   0.0
@@ -79,7 +79,7 @@ def training(cfg: GAConfig, train: list) -> dict:
     for ind in population:
         ind['fitness'] = fitness(ind, train)
 
-    print(f"  {'Поколение':>10}  {'Fitness':>8} {'Первые 4 веса':>20}")
+    print(f"{'Поколение':>10}  {'Fitness':>8} {'Первые 4 веса':>20}")
 
     for gen in range(1, cfg.num_generations + 1):
 
@@ -87,12 +87,12 @@ def training(cfg: GAConfig, train: list) -> dict:
         best = population[0]
 
         if gen == 1 or gen % 10 == 0:
-            print(f"  {gen:>10}  {best['fitness']:>8} {', '.join(f'{w:.4f}' for w in best['weights'][:4])}")
+            print(f"{gen:>10}  {best['fitness']:>8} {', '.join(f'{w:.4f}' for w in best['weights'][:4])}")
 
 
         if best['fitness'] == 1.0:
-            print(f"\n  Достигнута 100% точность на поколении {gen}!")
-            print(f"  Лучший нейрон: порог {best['bias']:.4f}, первые 4 веса {best['weights'][:4]}")
+            print(f"\nДостигнута 100% точность на поколении {gen}!")
+            print(f"Лучший нейрон: порог {best['bias']:.4f}, первые 4 веса {best['weights'][:4]}")
             break
 
         new_pop = [best]
@@ -115,37 +115,37 @@ def predict_image(best: dict, filepath: str) -> None:
     pixels = read_png(filepath)
     result = neuron(best['weights'], best['bias'], pixels)
     label  = '+ (плюс)' if result == 1 else 'V (галочка)'
-    print(f"\n  Изображение: {os.path.basename(filepath)}")
+    print(f"\nИзображение: {os.path.basename(filepath)}")
     for r in range(9):
         row = ''.join('  ' if pixels[r*9+c] else '##' for c in range(9))
-        print(f"  |{row}|")
-    print(f"\n  Ответ нейрона: {label}")
+        print(f"|{row}|")
+    print(f"\nОтвет нейрона: {label}")
 
 
 
 cfg = GAConfig()
 
 
-print(f"  Популяция : {cfg.population_size}")
-print(f"  Поколений : {cfg.num_generations}")
-print(f"  Мутация   : {cfg.mutation_chance:.0%}")
+print(f"Популяция : {cfg.population_size}")
+print(f"Поколений : {cfg.num_generations}")
+print(f"Мутация   : {cfg.mutation_chance:.0%}")
 
 train = load_dataset('train')
-print(f"\n  Загружено обучающих примеров: {len(train)}")
+print(f"\nЗагружено обучающих примеров: {len(train)}")
 
 best = training(cfg, train)
 
-print(f"\n  Лучший нейрон:")
-print(f"    Фитнес функция : {best['fitness']}")
-print(f"    Порог th : {best['bias']:.4f}")
+print(f"\nЛучший нейрон:")
+print(f"Фитнес функция : {best['fitness']}")
+print(f"Порог th : {best['bias']:.4f}")
 
 
-print(f"\n  ДЕМОНСТРАЦИЯ")
+print(f"\nДЕМОНСТРАЦИЯ\n")
 while True:
-    path = input("\n  Путь к изображению: ").strip()
+    path = input("Путь к изображению: ").strip()
     if path.lower() == 'q':
         break
     if not os.path.isfile(path):
-        print(f"  Файл не найден: {path}")
+        print(f"Файл не найден: {path}")
         continue
     predict_image(best, path)
