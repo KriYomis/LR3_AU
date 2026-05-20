@@ -9,10 +9,9 @@ class GAConfig:
     num_generations:  int = 10000   
     mutation_chance:  float = 0.15
     mutation_chance_2: float = 0.30  
-    weight_range: float = 1.0   
     bias_range: float = 5.0   
 
-random.seed(42)
+random.seed(76)
 NUM_PIXELS = 81
 
 def read_png(filepath: str) -> list:
@@ -71,9 +70,9 @@ def mutate(ind: dict, cfg: GAConfig) -> dict:
         while p2 == p1:
             p2 = random.randint(0, NUM_PIXELS - 1)
         w[p1], w[p2] = w[p2], w[p1]
-    if random.random() < cfg.mutation_chance_2:
-        p1 = random.randint(0, NUM_PIXELS - 1)
-        w[p1] += random.uniform(-0.3, 0.3)
+    elif random.random() < cfg.mutation_chance_2:
+        p3 = random.randint(0, NUM_PIXELS - 1)
+        w[p3] += random.uniform(-0.3, 0.3)
 
     return {'weights': w, 'bias': ind['bias'], 'fitness': 0.0}
 
@@ -148,8 +147,6 @@ print(f"Порог th : {best['bias']:.4f}")
 print(f"\nДЕМОНСТРАЦИЯ\n")
 while True:
     path = input("Путь к изображению: ").strip()
-    if path.lower() == 'q':
-        break
     if not os.path.isfile(path):
         print(f"Файл не найден: {path}")
         continue
