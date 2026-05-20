@@ -7,7 +7,8 @@ from PIL import Image
 class GAConfig:
     population_size:  int   = 10  
     num_generations:  int   = 10000   
-    mutation_chance:  float = 0.15  
+    mutation_chance:  float = 0.15
+    mutation_chance_2: float = 0.30  
     weight_range:     float = 1.0   
     bias_range:  float = 5.0   
 
@@ -25,7 +26,7 @@ def load_dataset(folder: str) -> list:
     for cls, lbl in {'plus': 1, 'V': 0}.items():
         path = os.path.join(folder, cls)
         for fname in sorted(os.listdir(path)):
-            if fname.lower().endswith('.png'):
+            if fname.endswith('.png'):
                 pixels = read_png(os.path.join(path, fname))
                 data.append({'pixels': pixels, 'label': lbl, 'name': fname})
     return data
@@ -70,6 +71,10 @@ def mutate(ind: dict, cfg: GAConfig) -> dict:
         while p2 == p1:
             p2 = random.randint(0, NUM_PIXELS - 1)
         w[p1], w[p2] = w[p2], w[p1]
+    if random.random() < cfg.mutation_chance_2:
+        p1 = random.randint(0, NUM_PIXELS - 1)
+        w[p1] += random.uniform(-0.3, 0.3)
+
     return {'weights': w, 'bias': ind['bias'], 'fitness': 0.0}
 
 
@@ -126,9 +131,9 @@ def predict_image(best: dict, filepath: str) -> None:
 cfg = GAConfig()
 
 
-print(f"Популяция : {cfg.population_size}")
-print(f"Поколений : {cfg.num_generations}")
-print(f"Мутация   : {cfg.mutation_chance:.0%}")
+print(f"  Популяция : {cfg.population_size}")
+print(f"  Поколений : {cfg.num_generations}")
+print(f"  Мутация   : {cfg.mutation_chance:.0%}")
 
 train = load_dataset('train')
 print(f"\nЗагружено обучающих примеров: {len(train)}")
