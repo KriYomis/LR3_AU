@@ -5,8 +5,8 @@ from PIL import Image
 
 @dataclass
 class GAConfig:
-    population_size: int = 10  
-    num_generations:  int = 10000   
+    population_size: int = 30  
+    num_generations:  int = 100   
     mutation_chance:  float = 0.15
     mutation_chance_2: float = 0.30  
     bias_range: float = 5.0   
@@ -83,29 +83,33 @@ def training(cfg: GAConfig, train: list) -> dict:
     for ind in population:
         ind['fitness'] = fitness(ind, train)
 
-    print(f"{'Поколение':>10}  {'Fitness':>8} {'Первые 4 веса':>20}")
 
+    prev_best_fitness = 0.0
     for gen in range(1, cfg.num_generations + 1):
 
         population.sort(key=lambda x: x['fitness'], reverse=True)
         best = population[0]
-
+        elite = population[ : round(len(population) * 0.3) ]
         if gen == 1 or gen % 10 == 0:
-            print(f"{gen:>10}  {best['fitness']:>8} {', '.join(f'{w:.4f}' for w in best['weights'][:4])}")
+            #print(f"Элита{elite}")
+            print(f"\nФитнес функция целого поколения: {[f'{e['fitness']:.2f}' for e in population]}\n")
+            print(f"{'Поколение':>10}  {'Fitness':>8}")
+            print(f"{gen:>10}  {best['fitness']:>8}")
+            print(100 * '_')
 
 
         if best['fitness'] == 1.0:
             print(f"\nДостигнута 100% точность на поколении {gen}!")
-            print(f"Лучший нейрон: порог {best['bias']:.4f}, первые 4 веса {best['weights'][:4]}")
+            print(f"Лучший нейрон: bias {best['bias']:.4f}")
             break
 
         new_pop = [best]
 
         while len(new_pop) < cfg.population_size:
-            pa    = random.choice(population)   
-            pb    = random.choice(population)   
-            child = crossover(pa, pb)           
-            child = mutate(child, cfg)     
+            pa    = random.choice(elite)
+            pb    = random.choice(elite)
+            child = crossover(pa, pb)
+            child = mutate(child, cfg)
             child['fitness'] = fitness(child, train)
             new_pop.append(child)
 
@@ -141,7 +145,7 @@ best = training(cfg, train)
 
 print(f"\nЛучший нейрон:")
 print(f"Фитнес функция : {best['fitness']}")
-print(f"Порог th : {best['bias']:.4f}")
+print(f"bias нейрона : {best['bias']:.4f}")
 
 
 print(f"\nДЕМОНСТРАЦИЯ\n")
